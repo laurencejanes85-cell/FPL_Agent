@@ -608,7 +608,7 @@ if not st.session_state.messages:
     prompts = [
         "Build me a balanced squad for £100m",
         "Best value midfielders under £7m?",
-        "My FPL Team ID is xxxx, analyse it!",
+        "Compare Salah and Saka",
         "Any double gameweeks coming up?",
     ]
     cols = st.columns(2)
@@ -629,17 +629,6 @@ if st.session_state.question_count > 0 and st.session_state.question_count % 3 =
     </div>
     """, unsafe_allow_html=True)
 
-# Hard limit at 5
-if st.session_state.question_count >= 5:
-    st.markdown(f"""
-    <div style="background:#fff8f0;border:1px solid #f5c16c;border-radius:12px;padding:1.5rem 1.75rem;text-align:center;margin:1.5rem 0;">
-        <div style="display:inline-block;background:#fef3c7;color:#92400e;font-size:11px;font-weight:600;padding:2px 10px;border-radius:999px;margin-bottom:0.75rem;letter-spacing:0.04em;">YOU'VE BEEN BUSY!</div>
-        <h3 style="margin:0 0 0.5rem;font-size:18px;color:#92400e;">You've used your 5 free questions ⚽</h3>
-        <p style="margin:0 0 1rem;font-size:14px;color:#78350f;">FPL Agent is free to use — if you're finding it useful, buying me a coffee helps keep it running. No pressure at all.</p>
-        <a href="https://buymeacoffee.com/fplagent" target="_blank" style="background:#1a7a3c;color:white;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;">☕ Buy me a coffee</a>
-    </div>
-    """, unsafe_allow_html=True)
-    st.stop()
 
 user_input = st.chat_input("Ask anything about FPL...") or st.session_state.pop("pending_prompt", None)
 
