@@ -3,3 +3,4 @@ requests
 pulp
 streamlit
 supabase
+gspread
