@@ -520,6 +520,13 @@ The engine tests every legal FPL formation, picks the best starting XI, orders t
 
 # ── Main chat UI ──────────────────────────────────────────
 st.markdown(f"### ⚽ FPL Agent — GW{next_gw}")
+
+# Debug sheet connection — remove once working
+sheet = get_sheet()
+if sheet:
+    st.success(f"✅ Sheet connected: {sheet.title}")
+else:
+    st.error("❌ Sheet connection failed — check secrets and sharing settings")
 st.divider()
 
 # Suggested prompts
