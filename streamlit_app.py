@@ -627,9 +627,11 @@ PERSONALISED TEAM ANALYSIS:
 
 OUTPUT STYLE:
 - The app automatically renders squad and team data as a formatted table — you do NOT need to list players
-- Focus purely on insights, reasoning, and recommendations after a build_squad or get_team call
+- After build_squad or get_team, the tool result contains a VERIFIED SQUAD DATA block — use ONLY the names, teams, and fixtures listed there
+- Never reference a fixture, team, or opponent that does not appear in the verified squad data
+- Focus purely on insights and recommendations based on the verified data
 - Lead with the most important insight
-- Always give a reason for every recommendation
+- Always give a reason for every recommendation grounded in the verified stats
 - End with a one-line summary of the key action to take
 - Use bullet points for clarity, keep it concise"""
 
@@ -683,7 +685,46 @@ def render_team(data):
         })
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
-# ── Helper: run agent ─────────────────────────────────────
+def build_squad_context(data):
+    """Build a verified text summary of squad data to pass back to Claude."""
+    if "error" in data:
+        return f"Squad build failed: {data['error']}"
+    lines = [
+        f"Squad built for GW{data['gw']} | Formation: {data['formation']} | Budget used: £{data['budget_used']}m | Remaining: £{data['budget_remaining']}m",
+        f"Captain: {data['captain']} | Vice-captain: {data['vice_captain']}",
+        f"DGW players in XI: {', '.join(data['dgw_players']) if data['dgw_players'] else 'None'}",
+        f"BGW warnings: {', '.join(data['bgw_warnings']) if data['bgw_warnings'] else 'None'}",
+        "",
+        "VERIFIED SQUAD DATA (use ONLY these names, teams, and fixtures in your response):",
+    ]
+    for p in data["players"]:
+        lines.append(
+            f"  {p['role']}: {p['name']} | Team: {p['team']} | Pos: {p['pos']} | £{p['price']}m | "
+            f"Fixture GW{data['gw']}: {p['fixture']} | Score: {p['score']}"
+        )
+    return "\n".join(lines)
+
+def build_team_context(data):
+    """Build a verified text summary of a user's team to pass back to Claude."""
+    if "error" in data:
+        return f"Team fetch failed: {data['error']}"
+    lines = [
+        f"Team: {data['team_name']} | Manager: {data['manager']} | Overall rank: {data.get('overall_rank','?')} | Points: {data.get('total_points','?')}",
+        f"Captain: {data['captain']} | Vice-captain: {data['vice_captain']}",
+        f"DGW players in XI: {', '.join(data['dgw_players']) if data['dgw_players'] else 'None'}",
+        f"BGW warnings: {', '.join(data['bgw_warnings']) if data['bgw_warnings'] else 'None'}",
+        f"Transfer candidates (lowest xGI/90): {', '.join(data['transfer_candidates'])}",
+        "",
+        "VERIFIED SQUAD DATA (use ONLY these names, teams, and fixtures in your response):",
+    ]
+    for p in data["squad"]:
+        lines.append(
+            f"  {p['role']}: {p['name']} | Team: {p['team']} | Pos: {p['pos']} | £{p['price']}m | "
+            f"Fixture: {p['fixture']} | PPG: {p['ppg']} | Form: {p['form']} | xGI/90: {p['xgi_per90']}"
+        )
+    return "\n".join(lines)
+
+
 def run_agent(history):
     client        = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
     squad_renders = []
