@@ -487,13 +487,13 @@ Upcoming DGW/BGW schedule:
 LIVE_CONTEXT = build_live_context()
 
 
-    "filter_players":     filter_players,
-    "top_stat_leaders":   top_stat_leaders,
-    "compare_players":    compare_players,
-    "fixture_difficulty": fixture_difficulty,
-    "get_team":           get_team,
-    "gameweek_overview":  gameweek_overview,
-    "build_squad":        build_squad,
+"filter_players":     filter_players,
+"top_stat_leaders":   top_stat_leaders,
+"compare_players":    compare_players,
+"fixture_difficulty": fixture_difficulty,
+"get_team":           get_team,
+"gameweek_overview":  gameweek_overview,
+"build_squad":        build_squad,
 }
 
 SYSTEM = f"""You are an expert Fantasy Premier League (FPL) assistant with access to live GW{next_gw} data via tools.
