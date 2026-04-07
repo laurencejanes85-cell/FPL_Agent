@@ -35,7 +35,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-BMC_URL = "https://buymeacoffee.com/fplagent"
+BMC_URL  = "https://buymeacoffee.com/fplagent"
 BMC_LINK = f'<div class="free-note"><a href="{BMC_URL}" target="_blank"><strong>☕ Buy me a coffee if you find it useful</strong></a></div>'
 
 # ── Google Sheets logging ─────────────────────────────────
@@ -242,7 +242,7 @@ def get_team(team_id):
             if not player:
                 continue
             t_id = next((t["id"] for t in bootstrap["teams"] if t["name"] == player["team"]), 0)
-            fix  = ", ".join(next_gw_fix_str.get(t_id, ["?"]))
+            fix  = ", ".join(next_gw_fix_str.get(t_id, ["No fixture — BGW"]))
             role = "XI" if pick["position"] <= 11 else "Bench"
             if pick["is_captain"]:
                 role = "Captain"
@@ -263,9 +263,9 @@ def get_team(team_id):
                 "bgw":       t_id in bgw_teams,
                 "role":      role,
             })
-        bgw_players        = [p["name"] for p in squad if p["bgw"] and p["role"] in ("XI","Captain","Vice-Captain")]
-        dgw_players        = [p["name"] for p in squad if p["dgw"] and p["role"] in ("XI","Captain","Vice-Captain")]
-        xi                 = [p for p in squad if p["role"] in ("XI","Captain","Vice-Captain")]
+        bgw_players         = [p["name"] for p in squad if p["bgw"] and p["role"] in ("XI","Captain","Vice-Captain")]
+        dgw_players         = [p["name"] for p in squad if p["dgw"] and p["role"] in ("XI","Captain","Vice-Captain")]
+        xi                  = [p for p in squad if p["role"] in ("XI","Captain","Vice-Captain")]
         transfer_candidates = sorted([p for p in xi if not p["dgw"]], key=lambda p: p["xgi_per90"])[:3]
         return {
             "manager":             f"{entry.get('player_first_name','')} {entry.get('player_last_name','')}".strip(),
@@ -284,65 +284,58 @@ def get_team(team_id):
         return {"error": f"Something went wrong: {str(e)}"}
 
 def get_fixtures(gameweek=None):
-    """Return all fixtures for a given gameweek with full team names and difficulty."""
-    gw = gameweek or next_gw
+    gw          = gameweek or next_gw
     gw_fixtures = [f for f in fixtures if f["event"] == gw]
     if not gw_fixtures:
-        return {"error": f"No fixtures found for GW{gw} — this may be a blank gameweek for all teams."}
+        return {"error": f"No fixtures found for GW{gw} — this may be a blank gameweek."}
     results = []
     for fix in gw_fixtures:
-        h_name = teams_by_id.get(fix["team_h"], "?")
-        a_name = teams_by_id.get(fix["team_a"], "?")
+        h = teams_by_id.get(fix["team_h"], "?")
+        a = teams_by_id.get(fix["team_a"], "?")
         results.append({
-            "home_team":       h_name,
-            "away_team":       a_name,
+            "home_team":       h,
+            "away_team":       a,
             "home_difficulty": fix["team_h_difficulty"],
             "away_difficulty": fix["team_a_difficulty"],
-            "home_fixture":    f"{a_name}(H)",
-            "away_fixture":    f"{h_name}(A)",
+            "home_fixture":    f"{a}(H)",
+            "away_fixture":    f"{h}(A)",
         })
-    # Also flag BGW teams
-    all_ids      = {t["id"] for t in bootstrap["teams"]}
-    playing_ids  = {fix["team_h"] for fix in gw_fixtures} | {fix["team_a"] for fix in gw_fixtures}
-    bgw_ids      = all_ids - playing_ids
-    dgw_ids      = {}
+    all_ids     = {t["id"] for t in bootstrap["teams"]}
+    playing_ids = {fix["team_h"] for fix in gw_fixtures} | {fix["team_a"] for fix in gw_fixtures}
+    bgw_ids     = all_ids - playing_ids
+    dgw_count   = {}
     for fix in gw_fixtures:
-        dgw_ids[fix["team_h"]] = dgw_ids.get(fix["team_h"], 0) + 1
-        dgw_ids[fix["team_a"]] = dgw_ids.get(fix["team_a"], 0) + 1
-    dgw_teams_out = [teams_by_id[tid] for tid, cnt in dgw_ids.items() if cnt >= 2]
-    bgw_teams_out = [teams_by_id[tid] for tid in bgw_ids]
+        dgw_count[fix["team_h"]] = dgw_count.get(fix["team_h"], 0) + 1
+        dgw_count[fix["team_a"]] = dgw_count.get(fix["team_a"], 0) + 1
     return {
-        "gameweek":   gw,
-        "fixtures":   results,
-        "dgw_teams":  dgw_teams_out,
-        "bgw_teams":  bgw_teams_out,
+        "gameweek":  gw,
+        "fixtures":  results,
+        "dgw_teams": [teams_by_id[tid] for tid, cnt in dgw_count.items() if cnt >= 2],
+        "bgw_teams": [teams_by_id[tid] for tid in bgw_ids],
     }
 
 @st.cache_data(ttl=3600)
 def _cached_top_players():
-    """Pre-compute scored and ranked player list — cached for 1 hour."""
     scored = []
     for p in players:
-        t_id    = next((t["id"] for t in bootstrap["teams"] if t["name"] == p["team"]), 0)
-        diffs   = next_gw_diff.get(t_id, [3])
-        fix_d   = sum(diffs) / max(1, len(diffs))
-        fix_str = ", ".join(next_gw_fix_str.get(t_id, ["No fixture — BGW"]))
-        is_dgw  = t_id in dgw_teams
-        is_bgw  = t_id in bgw_teams
-
-        mins    = max(p["minutes"], 1)
-        gpts    = {"FWD":4,"MID":5,"DEF":6,"GK":6}[p["pos"]]
-        attack  = (p["xg_per90"]*0.5 + (p["goals"]/mins*90)*0.5)*gpts
-        attack += (p["xa_per90"]*0.5 + (p["assists"]/mins*90)*0.5)*3
-        cs_pts  = {"GK":4,"DEF":4,"MID":1,"FWD":0}[p["pos"]]
-        defence = (p["clean_sheets"]/mins*90)*cs_pts
-        bonus   = p["ppg"]*0.3
+        t_id     = next((t["id"] for t in bootstrap["teams"] if t["name"] == p["team"]), 0)
+        diffs    = next_gw_diff.get(t_id, [3])
+        fix_d    = sum(diffs) / max(1, len(diffs))
+        fix_str  = ", ".join(next_gw_fix_str.get(t_id, ["No fixture — BGW"]))
+        is_dgw   = t_id in dgw_teams
+        is_bgw   = t_id in bgw_teams
+        mins     = max(p["minutes"], 1)
+        gpts     = {"FWD":4,"MID":5,"DEF":6,"GK":6}[p["pos"]]
+        attack   = (p["xg_per90"]*0.5 + (p["goals"]/mins*90)*0.5)*gpts
+        attack  += (p["xa_per90"]*0.5 + (p["assists"]/mins*90)*0.5)*3
+        cs_pts   = {"GK":4,"DEF":4,"MID":1,"FWD":0}[p["pos"]]
+        defence  = (p["clean_sheets"]/mins*90)*cs_pts
+        bonus    = p["ppg"]*0.3
         fix_mult = ((6-fix_d)/5)**1.4
-        raw     = attack*1.5 + defence + bonus
-        base    = raw*(1+0.3*(p["form"]/10))*fix_mult
+        raw      = attack*1.5 + defence + bonus
+        base     = raw*(1+0.3*(p["form"]/10))*fix_mult
         if is_dgw: base *= 1.8
         elif is_bgw: base *= 0.1
-
         scored.append({
             "name":      p["web_name"],
             "team":      p["team"],
@@ -361,17 +354,12 @@ def _cached_top_players():
     return sorted(scored, key=lambda p: p["score"], reverse=True)
 
 def get_top_players(position="ALL", limit=200):
-    """Return top players ranked by the FPL Agent scoring engine, with verified fixtures."""
     pool = _cached_top_players()
     if position != "ALL":
         pool = [p for p in pool if p["pos"] == position]
-    return {
-        "gameweek": next_gw,
-        "position": position,
-        "players":  pool[:limit],
-    }
+    return {"gameweek": next_gw, "position": position, "players": pool[:limit]}
 
-
+def gameweek_overview(gameweeks_ahead=5):
     results = []
     for gw in range(next_gw, min(next_gw + gameweeks_ahead, 39)):
         status = gw_status.get(gw, {})
@@ -412,10 +400,8 @@ def build_squad(style="balanced", excluded_teams=None, excluded_players=None,
         fix_mult = ((6-fix_d)/5)**fix_pow
         raw      = attack*atk_w + defence + bonus
         base     = raw*(1+form_w*(p["form"]/10))*fix_mult
-        if t_id in dgw_teams:
-            base *= 1.8
-        elif t_id in bgw_teams:
-            base *= 0.1
+        if t_id in dgw_teams: base *= 1.8
+        elif t_id in bgw_teams: base *= 0.1
         return base
 
     pool = [p for p in players
@@ -474,7 +460,7 @@ def build_squad(style="balanced", excluded_teams=None, excluded_players=None,
 
     def fmt(p, role):
         t_id = next((t["id"] for t in bootstrap["teams"] if t["name"]==p["team"]),0)
-        fix  = ", ".join(next_gw_fix_str.get(t_id, ["?"]))
+        fix  = ", ".join(next_gw_fix_str.get(t_id, ["No fixture — BGW"]))
         return {"name":p["web_name"],"team":p["team"],"pos":p["pos"],
                 "price":p["price"],"score":round(p["_score"],2),"fixture":fix,"role":role}
 
@@ -523,12 +509,12 @@ TOOLS = [
          "required":["team_id"]}},
     {"name":"get_fixtures","description":"Get all verified fixtures for a given gameweek from the FPL API. Always call this before making any fixture-related claims.",
      "input_schema":{"type":"object","properties":{
-         "gameweek":{"type":"integer","description":"The gameweek to fetch fixtures for. Defaults to next GW."}}}},
-    {"name":"get_top_players","description":"Get top players ranked by the FPL Agent scoring engine with verified fixture strings. Use this when discussing player quality, transfer targets, or captaincy options.",
+         "gameweek":{"type":"integer","description":"The gameweek to fetch. Defaults to next GW."}}}},
+    {"name":"get_top_players","description":"Get top players ranked by the FPL Agent scoring engine with verified fixture strings. Use before discussing transfers, captaincy, or player quality.",
      "input_schema":{"type":"object","properties":{
          "position":{"type":"string","enum":["GK","DEF","MID","FWD","ALL"]},
          "limit":{"type":"integer","description":"Number of players to return, default 200"}}}},
-
+    {"name":"gameweek_overview","description":"Show which upcoming gameweeks have double or blank gameweeks and which teams are affected.",
      "input_schema":{"type":"object","properties":{
          "gameweeks_ahead":{"type":"integer","description":"How many GWs ahead to look, default 5"}}}},
     {"name":"build_squad","description":"Build an optimised 15-player FPL squad.",
@@ -647,8 +633,8 @@ OUTPUT STYLE:
 - End with a one-line summary of the key action to take
 - Use bullet points for clarity, keep it concise"""
 
+# ── Render helpers ────────────────────────────────────────
 def render_squad(data):
-    """Render a build_squad result as a clean formatted table."""
     if "error" in data:
         return
     st.markdown(f"**Formation:** {data['formation']} | **GW{data['gw']}** | £{data['budget_used']}m used | £{data['budget_remaining']}m left")
@@ -660,20 +646,18 @@ def render_squad(data):
     rows = []
     for p in data["players"]:
         badge = " 🟡" if p["role"] == "Captain" else " 🔵" if p["role"] == "Vice-Captain" else ""
-        bench = p["role"] == "Bench"
         rows.append({
-            "": "🔲" if bench else "✅",
-            "Player":   p["name"] + badge,
-            "Pos":      p["pos"],
-            "Team":     p["team"],
-            "£":        f"£{p['price']}m",
-            "Fixture":  p["fixture"],
-            "Role":     p["role"],
+            "": "🔲" if p["role"] == "Bench" else "✅",
+            "Player":  p["name"] + badge,
+            "Pos":     p["pos"],
+            "Team":    p["team"],
+            "£":       f"£{p['price']}m",
+            "Fixture": p["fixture"],
+            "Role":    p["role"],
         })
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
 def render_team(data):
-    """Render a get_team result as a clean formatted table."""
     if "error" in data:
         return
     st.markdown(f"**{data['team_name']}** ({data['manager']}) | Rank: {data.get('overall_rank','?'):,} | Points: {data.get('total_points','?')}")
@@ -685,22 +669,24 @@ def render_team(data):
     rows = []
     for p in data["squad"]:
         badge = " 🟡" if p["role"] == "Captain" else " 🔵" if p["role"] == "Vice-Captain" else ""
-        bench = p["role"] == "Bench"
         rows.append({
-            "": "🔲" if bench else "✅",
-            "Player":    p["name"] + badge,
-            "Pos":       p["pos"],
-            "Team":      p["team"],
-            "£":         f"£{p['price']}m",
-            "PPG":       p["ppg"],
-            "Form":      p["form"],
-            "xGI/90":   p["xgi_per90"],
-            "Fixture":   p["fixture"],
-            "Role":      p["role"],
+            "": "🔲" if p["role"] == "Bench" else "✅",
+            "Player":   p["name"] + badge,
+            "Pos":      p["pos"],
+            "Team":     p["team"],
+            "£":        f"£{p['price']}m",
+            "PPG":      p["ppg"],
+            "Form":     p["form"],
+            "xGI/90":  p["xgi_per90"],
+            "Fixture":  p["fixture"],
+            "Role":     p["role"],
         })
     st.dataframe(rows, use_container_width=True, hide_index=True)
+
+# ── Helper: run agent ─────────────────────────────────────
 def run_agent(history):
-    client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+    client        = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+    squad_renders = []
     for _ in range(8):
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -718,6 +704,8 @@ def run_agent(history):
                 fn     = TOOL_FNS.get(block.name)
                 result = json.dumps(fn(**block.input)) if fn else json.dumps({"error": "unknown tool"})
                 tool_results.append({"type":"tool_result","tool_use_id":block.id,"content":result})
+                if block.name in ("build_squad","get_team"):
+                    squad_renders.append((block.name, json.loads(result)))
         history.append({"role": "user", "content": tool_results})
     reply = "".join(b.text for b in response.content if hasattr(b, "text"))
     safe  = []
@@ -728,7 +716,7 @@ def run_agent(history):
             ]})
         else:
             safe.append(msg)
-    return reply, safe
+    return reply, safe, squad_renders
 
 # ── Landing page ──────────────────────────────────────────
 if st.session_state.show_landing and not st.session_state.show_how_it_works:
@@ -832,7 +820,6 @@ if not st.session_state.messages:
     prompts = [
         "Build me a balanced squad for £100m",
         "Best value midfielders under £7m?",
-        "Compare Salah and Saka",
         "Any double gameweeks coming up?",
     ]
     cols = st.columns(2)
@@ -861,8 +848,7 @@ if user_input:
     st.session_state.history.append({"role": "user", "content": user_input})
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            result = run_agent(st.session_state.history)
-            reply, safe_history, squad_renders = result if len(result) == 3 else (*result, [])
+            reply, safe_history, squad_renders = run_agent(st.session_state.history)
         for tool_name, data in squad_renders:
             if tool_name == "build_squad":
                 render_squad(data)
