@@ -542,12 +542,65 @@ PERSONALISED TEAM ANALYSIS:
 - After fetching: confirm team name and manager, flag BGW players in XI, highlight DGW players owned, identify 2-3 weakest players by xgi_per90 as transfer candidates, give captain recommendation with reasoning
 
 OUTPUT STYLE:
-- Never list the squad — just provide insights, reasoning, and recommendations
+- The app automatically renders squad and team data as a formatted table — you do NOT need to list players
+- Focus purely on insights, reasoning, and recommendations after a build_squad or get_team call
 - Lead with the most important insight
 - Always give a reason for every recommendation
-- End with a one-line summary of the key action to take"""
+- End with a one-line summary of the key action to take
+- Use bullet points for clarity, keep it concise"""
 
-# ── Helper: run agent ─────────────────────────────────────
+def render_squad(data):
+    """Render a build_squad result as a clean formatted table."""
+    if "error" in data:
+        return
+    st.markdown(f"**Formation:** {data['formation']} | **GW{data['gw']}** | £{data['budget_used']}m used | £{data['budget_remaining']}m left")
+    st.markdown(f"**Captain:** {data['captain']} | **Vice:** {data['vice_captain']}")
+    if data.get("dgw_players"):
+        st.success(f"⚡ DGW players in XI: {', '.join(data['dgw_players'])}")
+    if data.get("bgw_warnings"):
+        st.warning(f"⚠️ BGW warnings: {', '.join(data['bgw_warnings'])}")
+    rows = []
+    for p in data["players"]:
+        badge = " 🟡" if p["role"] == "Captain" else " 🔵" if p["role"] == "Vice-Captain" else ""
+        bench = p["role"] == "Bench"
+        rows.append({
+            "": "🔲" if bench else "✅",
+            "Player":   p["name"] + badge,
+            "Pos":      p["pos"],
+            "Team":     p["team"],
+            "£":        f"£{p['price']}m",
+            "Fixture":  p["fixture"],
+            "Role":     p["role"],
+        })
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+def render_team(data):
+    """Render a get_team result as a clean formatted table."""
+    if "error" in data:
+        return
+    st.markdown(f"**{data['team_name']}** ({data['manager']}) | Rank: {data.get('overall_rank','?'):,} | Points: {data.get('total_points','?')}")
+    st.markdown(f"**Captain:** {data['captain']} | **Vice:** {data['vice_captain']}")
+    if data.get("dgw_players"):
+        st.success(f"⚡ DGW players in XI: {', '.join(data['dgw_players'])}")
+    if data.get("bgw_warnings"):
+        st.warning(f"⚠️ BGW warnings in XI: {', '.join(data['bgw_warnings'])}")
+    rows = []
+    for p in data["squad"]:
+        badge = " 🟡" if p["role"] == "Captain" else " 🔵" if p["role"] == "Vice-Captain" else ""
+        bench = p["role"] == "Bench"
+        rows.append({
+            "": "🔲" if bench else "✅",
+            "Player":    p["name"] + badge,
+            "Pos":       p["pos"],
+            "Team":      p["team"],
+            "£":         f"£{p['price']}m",
+            "PPG":       p["ppg"],
+            "Form":      p["form"],
+            "xGI/90":   p["xgi_per90"],
+            "Fixture":   p["fixture"],
+            "Role":      p["role"],
+        })
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 def run_agent(history):
     client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
     for _ in range(8):
@@ -709,7 +762,13 @@ if user_input:
     st.session_state.history.append({"role": "user", "content": user_input})
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            reply, safe_history = run_agent(st.session_state.history)
+            reply, safe_history, squad_renders = run_agent(st.session_state.history)
+        for tool_name, data in squad_renders:
+            if tool_name == "build_squad":
+                render_squad(data)
+            elif tool_name == "get_team":
+                render_team(data)
+        if reply:
             st.markdown(reply)
     st.session_state.messages.append({"role": "assistant", "content": reply})
     st.session_state.history      = safe_history
