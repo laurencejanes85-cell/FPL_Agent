@@ -283,7 +283,95 @@ def get_team(team_id):
     except Exception as e:
         return {"error": f"Something went wrong: {str(e)}"}
 
-def gameweek_overview(gameweeks_ahead=5):
+def get_fixtures(gameweek=None):
+    """Return all fixtures for a given gameweek with full team names and difficulty."""
+    gw = gameweek or next_gw
+    gw_fixtures = [f for f in fixtures if f["event"] == gw]
+    if not gw_fixtures:
+        return {"error": f"No fixtures found for GW{gw} — this may be a blank gameweek for all teams."}
+    results = []
+    for fix in gw_fixtures:
+        h_name = teams_by_id.get(fix["team_h"], "?")
+        a_name = teams_by_id.get(fix["team_a"], "?")
+        results.append({
+            "home_team":       h_name,
+            "away_team":       a_name,
+            "home_difficulty": fix["team_h_difficulty"],
+            "away_difficulty": fix["team_a_difficulty"],
+            "home_fixture":    f"{a_name}(H)",
+            "away_fixture":    f"{h_name}(A)",
+        })
+    # Also flag BGW teams
+    all_ids      = {t["id"] for t in bootstrap["teams"]}
+    playing_ids  = {fix["team_h"] for fix in gw_fixtures} | {fix["team_a"] for fix in gw_fixtures}
+    bgw_ids      = all_ids - playing_ids
+    dgw_ids      = {}
+    for fix in gw_fixtures:
+        dgw_ids[fix["team_h"]] = dgw_ids.get(fix["team_h"], 0) + 1
+        dgw_ids[fix["team_a"]] = dgw_ids.get(fix["team_a"], 0) + 1
+    dgw_teams_out = [teams_by_id[tid] for tid, cnt in dgw_ids.items() if cnt >= 2]
+    bgw_teams_out = [teams_by_id[tid] for tid in bgw_ids]
+    return {
+        "gameweek":   gw,
+        "fixtures":   results,
+        "dgw_teams":  dgw_teams_out,
+        "bgw_teams":  bgw_teams_out,
+    }
+
+@st.cache_data(ttl=3600)
+def _cached_top_players():
+    """Pre-compute scored and ranked player list — cached for 1 hour."""
+    scored = []
+    for p in players:
+        t_id    = next((t["id"] for t in bootstrap["teams"] if t["name"] == p["team"]), 0)
+        diffs   = next_gw_diff.get(t_id, [3])
+        fix_d   = sum(diffs) / max(1, len(diffs))
+        fix_str = ", ".join(next_gw_fix_str.get(t_id, ["No fixture — BGW"]))
+        is_dgw  = t_id in dgw_teams
+        is_bgw  = t_id in bgw_teams
+
+        mins    = max(p["minutes"], 1)
+        gpts    = {"FWD":4,"MID":5,"DEF":6,"GK":6}[p["pos"]]
+        attack  = (p["xg_per90"]*0.5 + (p["goals"]/mins*90)*0.5)*gpts
+        attack += (p["xa_per90"]*0.5 + (p["assists"]/mins*90)*0.5)*3
+        cs_pts  = {"GK":4,"DEF":4,"MID":1,"FWD":0}[p["pos"]]
+        defence = (p["clean_sheets"]/mins*90)*cs_pts
+        bonus   = p["ppg"]*0.3
+        fix_mult = ((6-fix_d)/5)**1.4
+        raw     = attack*1.5 + defence + bonus
+        base    = raw*(1+0.3*(p["form"]/10))*fix_mult
+        if is_dgw: base *= 1.8
+        elif is_bgw: base *= 0.1
+
+        scored.append({
+            "name":      p["web_name"],
+            "team":      p["team"],
+            "pos":       p["pos"],
+            "price":     p["price"],
+            "score":     round(base, 3),
+            "ppg":       p["ppg"],
+            "form":      p["form"],
+            "xg_per90":  round(p["xg_per90"], 3),
+            "xa_per90":  round(p["xa_per90"], 3),
+            "xgi_per90": round(p["xgi_per90"], 3),
+            "fixture":   fix_str,
+            "dgw":       is_dgw,
+            "bgw":       is_bgw,
+        })
+    return sorted(scored, key=lambda p: p["score"], reverse=True)
+
+def get_top_players(position="ALL", limit=200):
+    """Return top players ranked by the FPL Agent scoring engine, with verified fixtures."""
+    pool = _cached_top_players()
+    if position != "ALL":
+        pool = [p for p in pool if p["pos"] == position]
+    return {
+        "gameweek": next_gw,
+        "position": position,
+        "players":  pool[:limit],
+    }
+
+
     results = []
     for gw in range(next_gw, min(next_gw + gameweeks_ahead, 39)):
         status = gw_status.get(gw, {})
@@ -433,7 +521,14 @@ TOOLS = [
      "input_schema":{"type":"object","properties":{
          "team_id":{"type":"integer","description":"The user's FPL team ID"}},
          "required":["team_id"]}},
-    {"name":"gameweek_overview","description":"Show which upcoming gameweeks have double or blank gameweeks and which teams are affected.",
+    {"name":"get_fixtures","description":"Get all verified fixtures for a given gameweek from the FPL API. Always call this before making any fixture-related claims.",
+     "input_schema":{"type":"object","properties":{
+         "gameweek":{"type":"integer","description":"The gameweek to fetch fixtures for. Defaults to next GW."}}}},
+    {"name":"get_top_players","description":"Get top players ranked by the FPL Agent scoring engine with verified fixture strings. Use this when discussing player quality, transfer targets, or captaincy options.",
+     "input_schema":{"type":"object","properties":{
+         "position":{"type":"string","enum":["GK","DEF","MID","FWD","ALL"]},
+         "limit":{"type":"integer","description":"Number of players to return, default 200"}}}},
+
      "input_schema":{"type":"object","properties":{
          "gameweeks_ahead":{"type":"integer","description":"How many GWs ahead to look, default 5"}}}},
     {"name":"build_squad","description":"Build an optimised 15-player FPL squad.",
@@ -452,6 +547,8 @@ TOOL_FNS = {
     "compare_players":    compare_players,
     "fixture_difficulty": fixture_difficulty,
     "get_team":           get_team,
+    "get_fixtures":       get_fixtures,
+    "get_top_players":    get_top_players,
     "gameweek_overview":  gameweek_overview,
     "build_squad":        build_squad,
 }
@@ -493,12 +590,12 @@ SYSTEM = f"""You are an expert Fantasy Premier League (FPL) assistant with acces
 
 CORE RULES:
 - The live FPL data above is ground truth — never contradict it
-- Only reference teams that appear in the team list above
-- Only reference fixtures that appear in the GW{next_gw} fixture list above
+- ALWAYS call get_fixtures before making any claim about who plays who
+- ALWAYS call get_top_players before discussing player quality, transfers, or captaincy
+- Only reference teams and fixtures returned by get_fixtures — never use your own knowledge
 - ALWAYS call the relevant tool before answering — never use general football knowledge
-- Never write out player names, teams, fixtures, or prices yourself — these come from tool results only
-- Do not format or list squad players yourself — the app displays squad data automatically from tool results
-- Your job after a build_squad or get_team call is to provide INSIGHTS and REASONING only — not to repeat the squad list
+- Do not format or list squad players yourself — the app renders squad data automatically
+- Your job after a build_squad or get_team call is to provide INSIGHTS and REASONING only
 - Every stat you quote MUST come from a tool call in this conversation
 - Never invent team names, fixtures, opponents, prices, or scores under any circumstances
 
