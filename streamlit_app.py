@@ -40,7 +40,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-GUMROAD_URL = "https://fplagent.gumroad.com/l/FPL_Agent"
+GUMROAD_URL = "https://buymeacoffee.com/fplagent"
 
 # ── Google Sheets logging ─────────────────────────────────
 @st.cache_resource
@@ -527,7 +527,7 @@ if st.session_state.show_landing and not st.session_state.show_how_it_works:
         if st.button("Get started →", use_container_width=True, type="primary"):
             st.session_state.show_how_it_works = True
             st.rerun()
-        st.markdown('<div class="free-note">Free to use · £4.99/month to support the tool</div>', unsafe_allow_html=True)
+        st.markdown('<div class="free-note">Free to use · Buy me a coffee if you find it useful ☕</div>', unsafe_allow_html=True)
     st.stop()
 
 # ── How it works ──────────────────────────────────────────
@@ -610,7 +610,7 @@ for msg in st.session_state.messages:
 if st.session_state.question_count > 0 and st.session_state.question_count % 3 == 0:
     st.markdown(f"""
     <div class="nudge-banner">
-        <p>⚽ Enjoying FPL Agent? <a href="{GUMROAD_URL}" target="_blank">Subscribe for £4.99/month</a> to support the tool and keep it running all season.</p>
+        <p>☕ Finding FPL Agent useful? <a href="https://buymeacoffee.com/fplagent" target="_blank">Buy me a coffee</a> to help keep it running — completely optional, always appreciated.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -618,10 +618,10 @@ if st.session_state.question_count > 0 and st.session_state.question_count % 3 =
 if st.session_state.question_count >= 5:
     st.markdown(f"""
     <div style="background:#fff8f0;border:1px solid #f5c16c;border-radius:12px;padding:1.5rem 1.75rem;text-align:center;margin:1.5rem 0;">
-        <div style="display:inline-block;background:#fef3c7;color:#92400e;font-size:11px;font-weight:600;padding:2px 10px;border-radius:999px;margin-bottom:0.75rem;letter-spacing:0.04em;">FREE LIMIT REACHED</div>
-        <h3 style="margin:0 0 0.5rem;font-size:18px;color:#92400e;">You've used your 5 free questions</h3>
-        <p style="margin:0 0 1rem;font-size:14px;color:#78350f;">Subscribe for £4.99/month to get unlimited FPL advice all season long.</p>
-        <a href="{GUMROAD_URL}" target="_blank" style="background:#1a7a3c;color:white;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Subscribe now →</a>
+        <div style="display:inline-block;background:#fef3c7;color:#92400e;font-size:11px;font-weight:600;padding:2px 10px;border-radius:999px;margin-bottom:0.75rem;letter-spacing:0.04em;">YOU'VE BEEN BUSY!</div>
+        <h3 style="margin:0 0 0.5rem;font-size:18px;color:#92400e;">You've used your 5 free questions ⚽</h3>
+        <p style="margin:0 0 1rem;font-size:14px;color:#78350f;">FPL Agent is free to use — if you're finding it useful, buying me a coffee helps keep it running. No pressure at all.</p>
+        <a href="https://buymeacoffee.com/fplagent" target="_blank" style="background:#1a7a3c;color:white;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;">☕ Buy me a coffee</a>
     </div>
     """, unsafe_allow_html=True)
     st.stop()
