@@ -66,6 +66,7 @@ for key, default in {
     "question_count": 0,
     "show_how_it_works": False,
     "show_landing": True,
+    "pending_prompt": None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -734,6 +735,7 @@ if not st.session_state.messages:
     prompts = [
         "Build me a balanced squad for £100m",
         "Best value midfielders under £7m?",
+        "Compare Salah and Saka",
         "Any double gameweeks coming up?",
     ]
     cols = st.columns(2)
@@ -762,7 +764,8 @@ if user_input:
     st.session_state.history.append({"role": "user", "content": user_input})
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            reply, safe_history, squad_renders = run_agent(st.session_state.history)
+            result = run_agent(st.session_state.history)
+            reply, safe_history, squad_renders = result if len(result) == 3 else (*result, [])
         for tool_name, data in squad_renders:
             if tool_name == "build_squad":
                 render_squad(data)
