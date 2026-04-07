@@ -35,15 +35,12 @@ st.markdown("""
         padding: 2rem; max-width: 420px; margin: 0 auto 2rem;
         box-shadow: 0 1px 4px rgba(0,0,0,0.06);
     }
-    .auth-card h3 { margin: 0 0 0.25rem; font-size: 17px; }
-    .auth-card p  { margin: 0 0 1.25rem; font-size: 13px; color: #6b7280; }
     .divider { text-align: center; color: #9ca3af; font-size: 12px; margin: 1rem 0; }
     .free-note { text-align: center; font-size: 12px; color: #9ca3af; margin-top: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
 GUMROAD_URL = "https://fplagent.gumroad.com/l/FPL_Agent"
-NUDGE_EVERY = 3
 
 # ── Google Sheets logging ─────────────────────────────────
 @st.cache_resource
@@ -53,7 +50,7 @@ def get_sheet():
             st.secrets["gcp_service_account"],
             scopes=["https://www.googleapis.com/auth/spreadsheets"],
         )
-        gc    = gspread.authorize(creds)
+        gc = gspread.authorize(creds)
         return gc.open_by_key(st.secrets["SHEET_ID"]).sheet1
     except Exception:
         return None
@@ -228,16 +225,77 @@ def fixture_difficulty(team=None, gameweeks=3):
     results.sort(key=lambda x: x["avg_difficulty"])
     return {"gameweeks": gameweeks, "from_gw": next_gw, "teams": results[:20] if not team else results}
 
+def get_team(team_id):
+    try:
+        entry = requests.get(f"https://fantasy.premierleague.com/api/entry/{team_id}/").json()
+        if "detail" in entry:
+            return {"error": f"Team ID {team_id} not found. Please check your FPL ID."}
+        picks_url = f"https://fantasy.premierleague.com/api/entry/{team_id}/event/{next_gw}/picks/"
+        picks_res = requests.get(picks_url).json()
+        if "detail" in picks_res:
+            picks_url = f"https://fantasy.premierleague.com/api/entry/{team_id}/event/{next_gw - 1}/picks/"
+            picks_res = requests.get(picks_url).json()
+            if "detail" in picks_res:
+                return {"error": "Could not retrieve team picks. Try again later."}
+        player_by_id = {p["id"]: p for p in players}
+        squad, captain, vice_captain = [], None, None
+        for pick in picks_res.get("picks", []):
+            pid    = pick["element"]
+            player = player_by_id.get(pid)
+            if not player:
+                continue
+            t_id   = next((t["id"] for t in bootstrap["teams"] if t["name"] == player["team"]), 0)
+            fix    = ", ".join(next_gw_fix_str.get(t_id, ["?"]))
+            role   = "XI" if pick["position"] <= 11 else "Bench"
+            if pick["is_captain"]:
+                role = "Captain"
+                captain = player["web_name"]
+            if pick["is_vice_captain"]:
+                role = "Vice-Captain"
+                vice_captain = player["web_name"]
+            squad.append({
+                "name":      player["web_name"],
+                "team":      player["team"],
+                "pos":       player["pos"],
+                "price":     player["price"],
+                "ppg":       player["ppg"],
+                "form":      player["form"],
+                "xgi_per90": round(player["xgi_per90"], 3),
+                "fixture":   fix,
+                "dgw":       t_id in dgw_teams,
+                "bgw":       t_id in bgw_teams,
+                "role":      role,
+            })
+        bgw_players = [p["name"] for p in squad if p["bgw"] and p["role"] in ("XI","Captain","Vice-Captain")]
+        dgw_players = [p["name"] for p in squad if p["dgw"] and p["role"] in ("XI","Captain","Vice-Captain")]
+        xi = [p for p in squad if p["role"] in ("XI","Captain","Vice-Captain")]
+        transfer_candidates = sorted([p for p in xi if not p["dgw"]], key=lambda p: p["xgi_per90"])[:3]
+        return {
+            "manager":             f"{entry.get('player_first_name','')} {entry.get('player_last_name','')}".strip(),
+            "team_name":           entry.get("name", "Unknown"),
+            "overall_rank":        entry.get("summary_overall_rank"),
+            "total_points":        entry.get("summary_overall_points"),
+            "gw":                  next_gw,
+            "captain":             captain,
+            "vice_captain":        vice_captain,
+            "squad":               squad,
+            "bgw_warnings":        bgw_players,
+            "dgw_players":         dgw_players,
+            "transfer_candidates": [p["name"] for p in transfer_candidates],
+        }
+    except Exception as e:
+        return {"error": f"Something went wrong: {str(e)}"}
+
 def gameweek_overview(gameweeks_ahead=5):
     results = []
     for gw in range(next_gw, min(next_gw + gameweeks_ahead, 39)):
         status = gw_status.get(gw, {})
         results.append({
-            "gw": gw,
+            "gw":        gw,
             "dgw_teams": status.get("dgw", []),
             "bgw_teams": status.get("bgw", []),
-            "has_dgw": bool(status.get("dgw")),
-            "has_bgw": bool(status.get("bgw")),
+            "has_dgw":   bool(status.get("dgw")),
+            "has_bgw":   bool(status.get("bgw")),
         })
     return {"from_gw": next_gw, "gameweeks": results}
 
@@ -374,6 +432,10 @@ TOOLS = [
     {"name":"fixture_difficulty","description":"Upcoming fixture difficulty for teams.",
      "input_schema":{"type":"object","properties":{
          "team":{"type":"string"},"gameweeks":{"type":"integer"}}}},
+    {"name":"get_team","description":"Fetch and analyse a user's actual FPL team by their team ID.",
+     "input_schema":{"type":"object","properties":{
+         "team_id":{"type":"integer","description":"The user's FPL team ID"}},
+         "required":["team_id"]}},
     {"name":"gameweek_overview","description":"Show which upcoming gameweeks have double or blank gameweeks and which teams are affected.",
      "input_schema":{"type":"object","properties":{
          "gameweeks_ahead":{"type":"integer","description":"How many GWs ahead to look, default 5"}}}},
@@ -392,6 +454,7 @@ TOOL_FNS = {
     "top_stat_leaders":   top_stat_leaders,
     "compare_players":    compare_players,
     "fixture_difficulty": fixture_difficulty,
+    "get_team":           get_team,
     "gameweek_overview":  gameweek_overview,
     "build_squad":        build_squad,
 }
@@ -404,7 +467,12 @@ DOUBLE/BLANK GAMEWEEK AWARENESS:
 - GW{next_gw} DGW teams: {', '.join(teams_by_id[tid] for tid in dgw_teams) if dgw_teams else 'None'}
 - GW{next_gw} BGW teams: {', '.join(teams_by_id[tid] for tid in bgw_teams) if bgw_teams else 'None'}
 - DGW players get a 1.8x score boost in squad builds. BGW players are heavily penalised.
-- Always flag BGW warnings if any selected XI player has a blank. Always highlight DGW players as targets."""
+- Always flag BGW warnings if any selected XI player has a blank. Always highlight DGW players as targets.
+
+PERSONALISED TEAM ANALYSIS:
+- Use the get_team tool whenever a user shares their FPL ID or asks for advice about their own team.
+- After fetching their team, analyse their squad, flag any BGW players in their XI, highlight DGW players they own, suggest transfer targets from the weakest non-DGW players, and give captain advice.
+- Always tell the user their team name and manager name to confirm you've fetched the right team."""
 
 # ── Helper: run agent ─────────────────────────────────────
 def run_agent(history):
@@ -521,7 +589,6 @@ The engine tests every legal FPL formation, picks the best starting XI, orders t
 st.markdown(f"### ⚽ FPL Agent — GW{next_gw}")
 st.divider()
 
-# Suggested prompts
 if not st.session_state.messages:
     prompts = [
         "Build me a balanced squad for £100m",
@@ -535,14 +602,12 @@ if not st.session_state.messages:
             st.session_state.pending_prompt = p
             st.rerun()
 
-# Chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 # Soft nudge every 3 questions
-if (st.session_state.question_count > 0
-        and st.session_state.question_count % 3 == 0):
+if st.session_state.question_count > 0 and st.session_state.question_count % 3 == 0:
     st.markdown(f"""
     <div class="nudge-banner">
         <p>⚽ Enjoying FPL Agent? <a href="{GUMROAD_URL}" target="_blank">Subscribe for £4.99/month</a> to support the tool and keep it running all season.</p>
@@ -552,18 +617,15 @@ if (st.session_state.question_count > 0
 # Hard limit at 5
 if st.session_state.question_count >= 5:
     st.markdown(f"""
-    <div class="limit-banner" style="background:#fff8f0;border:1px solid #f5c16c;border-radius:12px;padding:1.5rem 1.75rem;text-align:center;margin:1.5rem 0;">
+    <div style="background:#fff8f0;border:1px solid #f5c16c;border-radius:12px;padding:1.5rem 1.75rem;text-align:center;margin:1.5rem 0;">
         <div style="display:inline-block;background:#fef3c7;color:#92400e;font-size:11px;font-weight:600;padding:2px 10px;border-radius:999px;margin-bottom:0.75rem;letter-spacing:0.04em;">FREE LIMIT REACHED</div>
         <h3 style="margin:0 0 0.5rem;font-size:18px;color:#92400e;">You've used your 5 free questions</h3>
         <p style="margin:0 0 1rem;font-size:14px;color:#78350f;">Subscribe for £4.99/month to get unlimited FPL advice all season long.</p>
+        <a href="{GUMROAD_URL}" target="_blank" style="background:#1a7a3c;color:white;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Subscribe now →</a>
     </div>
     """, unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        st.markdown(f'<div style="text-align:center;margin-top:0.5rem"><a href="{GUMROAD_URL}" target="_blank" style="background:#1a7a3c;color:white;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Subscribe now →</a></div>', unsafe_allow_html=True)
     st.stop()
 
-# Chat input
 user_input = st.chat_input("Ask anything about FPL...") or st.session_state.pop("pending_prompt", None)
 
 if user_input:
@@ -576,7 +638,7 @@ if user_input:
             reply, safe_history = run_agent(st.session_state.history)
             st.markdown(reply)
     st.session_state.messages.append({"role": "assistant", "content": reply})
-    st.session_state.history    = safe_history
+    st.session_state.history     = safe_history
     st.session_state.question_count += 1
     log_question(user_input)
     st.rerun()
