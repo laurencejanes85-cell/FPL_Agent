@@ -423,58 +423,147 @@ FPL RULES:
 - Always give a reason grounded in the tool data"""
 
 # ── Render helpers ────────────────────────────────────────
+def _diff_badge(fixture):
+    """Return a colour-coded fixture string."""
+    return fixture if fixture else "—"
+
 def render_squad(data):
     if "error" in data: st.error(data["error"]); return
-    st.markdown(f"**{data['formation']}** | GW{data['gw']} | £{data['budget_used']}m used | £{data['budget_remaining']}m left")
-    st.markdown(f"**Captain:** {data['captain']} | **Vice:** {data['vice_captain']}")
-    if data.get("dgw_players"): st.success(f"⚡ DGW: {', '.join(data['dgw_players'])}")
-    if data.get("bgw_warnings"): st.warning(f"⚠️ BGW: {', '.join(data['bgw_warnings'])}")
-    rows = [{"":("🔲" if p["role"]=="Bench" else "✅"),
-             "Player":p["name"]+(" 🟡" if p["role"]=="Captain" else " 🔵" if p["role"]=="Vice-Captain" else ""),
-             "Pos":p["pos"],"Team":p["team"],"£":f"£{p['price']}m",
-             "Fixture":p["fixture"],"Role":p["role"]} for p in data["players"]]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    # Summary cards
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Formation", data["formation"])
+    c2.metric("Budget used", f"£{data['budget_used']}m")
+    c3.metric("Remaining", f"£{data['budget_remaining']}m")
+    c4.metric("Gameweek", f"GW{data['gw']}")
+
+    if data.get("dgw_players"):
+        st.success(f"⚡ Double GW players in XI: {', '.join(data['dgw_players'])}")
+    if data.get("bgw_warnings"):
+        st.warning(f"⚠️ Blank GW players in XI: {', '.join(data['bgw_warnings'])}")
+
+    # Build HTML table
+    rows_xi, rows_bench = [], []
+    for p in data["players"]:
+        is_cap  = p["role"] == "Captain"
+        is_vc   = p["role"] == "Vice-Captain"
+        is_bench= p["role"] == "Bench"
+        badge   = " 🟡" if is_cap else " 🔵" if is_vc else ""
+        dgw_tag = ' <span style="font-size:11px;background:var(--color-background-success);color:var(--color-text-success);padding:1px 6px;border-radius:999px">⚡ DGW</span>' if p.get("dgw") else ""
+        bgw_tag = ' <span style="font-size:11px;background:var(--color-background-warning);color:var(--color-text-warning);padding:1px 6px;border-radius:999px">⚠️ BGW</span>' if p.get("bgw") else ""
+        row = f"""<tr style="{'opacity:0.55' if is_bench else ''}">
+            <td style="padding:8px 6px;font-size:13px">{'🟡' if is_cap else '🔵' if is_vc else '⚽'}</td>
+            <td style="padding:8px 6px;font-weight:500;font-size:13px">{p['name']}{dgw_tag}{bgw_tag}</td>
+            <td style="padding:8px 6px;font-size:12px;color:var(--color-text-secondary)">{p['pos']}</td>
+            <td style="padding:8px 6px;font-size:12px;color:var(--color-text-secondary)">{p['team']}</td>
+            <td style="padding:8px 6px;font-size:12px">£{p['price']}m</td>
+            <td style="padding:8px 6px;font-size:12px;color:var(--color-text-secondary)">{p['fixture']}</td>
+        </tr>"""
+        if is_bench:
+            rows_bench.append(row)
+        else:
+            rows_xi.append(row)
+
+    header = """<tr style="border-bottom:0.5px solid var(--color-border-secondary)">
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left"></th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">Player</th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">Pos</th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">Team</th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">Price</th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">Fixture</th>
+    </tr>"""
+
+    html = f"""
+    <div style="background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;margin:0.75rem 0">
+        <div style="padding:10px 14px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px;font-weight:500;color:var(--color-text-secondary)">Starting XI — {data['formation']}</div>
+        <table style="width:100%;border-collapse:collapse">
+            {header}
+            {''.join(rows_xi)}
+        </table>
+    </div>
+    <div style="background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;margin:0.5rem 0">
+        <div style="padding:10px 14px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px;font-weight:500;color:var(--color-text-secondary)">Bench</div>
+        <table style="width:100%;border-collapse:collapse">
+            {''.join(rows_bench)}
+        </table>
+    </div>
+    <div style="font-size:11px;color:var(--color-text-tertiary);padding:4px 2px">🟡 Captain &nbsp; 🔵 Vice-captain &nbsp; ⚡ Double GW &nbsp; ⚠️ Blank GW</div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_team(data):
     if "error" in data: st.error(data["error"]); return
+
     rank = data.get("overall_rank")
-    rank_str = f"{rank:,}" if isinstance(rank, int) else str(rank) if rank else "?"
-    st.markdown(f"**{data['team_name']}** ({data['manager']}) | Rank: {rank_str} | Pts: {data.get('total_points','?')}")
-    st.markdown(f"**Captain:** {data['captain']} | **Vice:** {data['vice_captain']}")
-    if data.get("dgw_players"): st.success(f"⚡ DGW: {', '.join(data['dgw_players'])}")
-    if data.get("bgw_warnings"): st.warning(f"⚠️ BGW: {', '.join(data['bgw_warnings'])}")
-    rows = [{"":("🔲" if p["role"]=="Bench" else "✅"),
-             "Player":p["name"]+(" 🟡" if p["role"]=="Captain" else " 🔵" if p["role"]=="Vice-Captain" else ""),
-             "Pos":p["pos"],"Team":p["team"],"£":f"£{p['price']}m",
-             "PPG":p["ppg"],"Form":p["form"],"xGI/90":p["xgi_per90"],
-             "Fixture":p["fixture"],"Role":p["role"]} for p in data["squad"]]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    rank_str = f"{rank:,}" if isinstance(rank, int) else "?"
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Team", data["team_name"])
+    c2.metric("Overall rank", rank_str)
+    c3.metric("Total points", data.get("total_points","?"))
+
+    st.caption(f"Manager: {data['manager']} · Captain: {data['captain']} · Vice: {data['vice_captain']}")
+
+    if data.get("dgw_players"):
+        st.success(f"⚡ DGW players in XI: {', '.join(data['dgw_players'])}")
+    if data.get("bgw_warnings"):
+        st.warning(f"⚠️ BGW players in XI: {', '.join(data['bgw_warnings'])}")
+    if data.get("transfer_candidates"):
+        st.info(f"🔄 Consider transferring out: {', '.join(data['transfer_candidates'])}")
+
+    rows_xi, rows_bench = [], []
+    for p in data["squad"]:
+        is_cap  = p["role"] == "Captain"
+        is_vc   = p["role"] == "Vice-Captain"
+        is_bench= p["role"] == "Bench"
+        dgw_tag = ' <span style="font-size:11px;background:var(--color-background-success);color:var(--color-text-success);padding:1px 6px;border-radius:999px">⚡</span>' if p.get("dgw") else ""
+        bgw_tag = ' <span style="font-size:11px;background:var(--color-background-warning);color:var(--color-text-warning);padding:1px 6px;border-radius:999px">⚠️</span>' if p.get("bgw") else ""
+        row = f"""<tr style="{'opacity:0.55' if is_bench else ''}">
+            <td style="padding:8px 6px;font-size:13px">{'🟡' if is_cap else '🔵' if is_vc else '⚽'}</td>
+            <td style="padding:8px 6px;font-weight:500;font-size:13px">{p['name']}{dgw_tag}{bgw_tag}</td>
+            <td style="padding:8px 6px;font-size:12px;color:var(--color-text-secondary)">{p['pos']}</td>
+            <td style="padding:8px 6px;font-size:12px;color:var(--color-text-secondary)">{p['team']}</td>
+            <td style="padding:8px 6px;font-size:12px">£{p['price']}m</td>
+            <td style="padding:8px 6px;font-size:12px;color:var(--color-text-secondary)">{p['ppg']} ppg</td>
+            <td style="padding:8px 6px;font-size:12px;color:var(--color-text-secondary)">{p['xgi_per90']} xGI</td>
+            <td style="padding:8px 6px;font-size:12px;color:var(--color-text-secondary)">{p['fixture']}</td>
+        </tr>"""
+        if is_bench:
+            rows_bench.append(row)
+        else:
+            rows_xi.append(row)
+
+    header = """<tr style="border-bottom:0.5px solid var(--color-border-secondary)">
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left"></th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">Player</th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">Pos</th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">Team</th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">Price</th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">PPG</th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">xGI/90</th>
+        <th style="padding:6px;font-size:11px;color:var(--color-text-tertiary);font-weight:500;text-align:left">Fixture</th>
+    </tr>"""
+
+    html = f"""
+    <div style="background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;margin:0.75rem 0">
+        <div style="padding:10px 14px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px;font-weight:500;color:var(--color-text-secondary)">Starting XI</div>
+        <table style="width:100%;border-collapse:collapse">
+            {header}
+            {''.join(rows_xi)}
+        </table>
+    </div>
+    <div style="background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;margin:0.5rem 0">
+        <div style="padding:10px 14px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px;font-weight:500;color:var(--color-text-secondary)">Bench</div>
+        <table style="width:100%;border-collapse:collapse">
+            {''.join(rows_bench)}
+        </table>
+    </div>
+    <div style="font-size:11px;color:var(--color-text-tertiary);padding:4px 2px">🟡 Captain &nbsp; 🔵 Vice-captain &nbsp; ⚡ Double GW &nbsp; ⚠️ Blank GW</div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 def strip_fixture_hallucinations(text):
-    """Remove any lines from Claude's response that mention fixtures or opponents."""
-    import re
-    # Build set of valid team names from API
-    valid_teams = {t["name"].lower() for t in bootstrap["teams"]}
-    cleaned = []
-    for line in text.split("\n"):
-        lower = line.lower()
-        # Check if line mentions a team name followed by fixture language
-        has_fixture_lang = any(w in lower for w in [
-            " vs ", " v ", "(h)", "(a)", "home", "away", "fixture",
-            "faces ", "plays ", "against ", "hosting ", "travel"
-        ])
-        if has_fixture_lang:
-            # Check if it mentions a team not in the current PL
-            words = re.findall(r"[a-z ]{3,}", lower)
-            mentions_invalid = any(
-                w.strip() in ["leeds", "burnley", "sheffield", "luton",
-                               "leicester", "ipswich", "southampton"]
-                for w in words
-            )
-            if mentions_invalid:
-                continue  # drop this line
-        cleaned.append(line)
-    return "\n".join(cleaned)
+    """No-op — fixtures are valid, no stripping needed."""
+    return text
 def run_agent(history):
     client        = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
     squad_renders = []
@@ -580,7 +669,6 @@ if not st.session_state.messages:
     for i, p in enumerate([
         "Build me a balanced squad for £100m",
         "Best value midfielders under £7m?",
-        "Compare Salah and Saka",
         "Any double gameweeks coming up?",
     ]):
         if cols[i%2].button(p, use_container_width=True):
