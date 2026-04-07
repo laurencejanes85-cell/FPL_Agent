@@ -55,13 +55,13 @@ def get_sheet():
         )
         gc    = gspread.authorize(creds)
         sheet = gc.open_by_key(st.secrets["SHEET_ID"]).sheet1
-        return sheet
-    except Exception:
-        return None
+        return sheet, None
+    except Exception as e:
+        return None, str(e)
 
 def log_question(question):
     try:
-        sheet = get_sheet()
+        sheet, _ = get_sheet()
         if sheet:
             sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), question])
     except Exception:
@@ -522,11 +522,11 @@ The engine tests every legal FPL formation, picks the best starting XI, orders t
 st.markdown(f"### ⚽ FPL Agent — GW{next_gw}")
 
 # Debug sheet connection — remove once working
-sheet = get_sheet()
+sheet, err = get_sheet()
 if sheet:
     st.success(f"✅ Sheet connected: {sheet.title}")
 else:
-    st.error("❌ Sheet connection failed — check secrets and sharing settings")
+    st.error(f"❌ Sheet connection failed: {err}")
 st.divider()
 
 # Suggested prompts
