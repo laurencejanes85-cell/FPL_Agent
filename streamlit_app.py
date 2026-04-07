@@ -30,17 +30,13 @@ st.markdown("""
         padding: 1rem 1.25rem; margin: 1rem 0; text-align: center;
     }
     .nudge-banner p { margin: 0; font-size: 14px; color: #166534; }
-    .auth-card {
-        background: white; border: 1px solid #e5e7eb; border-radius: 16px;
-        padding: 2rem; max-width: 420px; margin: 0 auto 2rem;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-    }
     .divider { text-align: center; color: #9ca3af; font-size: 12px; margin: 1rem 0; }
     .free-note { text-align: center; font-size: 12px; color: #9ca3af; margin-top: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
-GUMROAD_URL = "https://buymeacoffee.com/fplagent"
+BMC_URL = "https://buymeacoffee.com/fplagent"
+BMC_LINK = f'<div class="free-note"><a href="{BMC_URL}" target="_blank"><strong>☕ Buy me a coffee if you find it useful</strong></a></div>'
 
 # ── Google Sheets logging ─────────────────────────────────
 @st.cache_resource
@@ -244,9 +240,9 @@ def get_team(team_id):
             player = player_by_id.get(pid)
             if not player:
                 continue
-            t_id   = next((t["id"] for t in bootstrap["teams"] if t["name"] == player["team"]), 0)
-            fix    = ", ".join(next_gw_fix_str.get(t_id, ["?"]))
-            role   = "XI" if pick["position"] <= 11 else "Bench"
+            t_id = next((t["id"] for t in bootstrap["teams"] if t["name"] == player["team"]), 0)
+            fix  = ", ".join(next_gw_fix_str.get(t_id, ["?"]))
+            role = "XI" if pick["position"] <= 11 else "Bench"
             if pick["is_captain"]:
                 role = "Captain"
                 captain = player["web_name"]
@@ -266,9 +262,9 @@ def get_team(team_id):
                 "bgw":       t_id in bgw_teams,
                 "role":      role,
             })
-        bgw_players = [p["name"] for p in squad if p["bgw"] and p["role"] in ("XI","Captain","Vice-Captain")]
-        dgw_players = [p["name"] for p in squad if p["dgw"] and p["role"] in ("XI","Captain","Vice-Captain")]
-        xi = [p for p in squad if p["role"] in ("XI","Captain","Vice-Captain")]
+        bgw_players        = [p["name"] for p in squad if p["bgw"] and p["role"] in ("XI","Captain","Vice-Captain")]
+        dgw_players        = [p["name"] for p in squad if p["dgw"] and p["role"] in ("XI","Captain","Vice-Captain")]
+        xi                 = [p for p in squad if p["role"] in ("XI","Captain","Vice-Captain")]
         transfer_candidates = sorted([p for p in xi if not p["dgw"]], key=lambda p: p["xgi_per90"])[:3]
         return {
             "manager":             f"{entry.get('player_first_name','')} {entry.get('player_last_name','')}".strip(),
@@ -449,28 +445,32 @@ TOOLS = [
          "required":["style"]}},
 ]
 
+TOOL_FNS = {
+    "filter_players":     filter_players,
+    "top_stat_leaders":   top_stat_leaders,
+    "compare_players":    compare_players,
+    "fixture_difficulty": fixture_difficulty,
+    "get_team":           get_team,
+    "gameweek_overview":  gameweek_overview,
+    "build_squad":        build_squad,
+}
+
 # ── Build live context for system prompt ──────────────────
 def build_live_context():
-    # Teams
     team_lines = "\n".join(f"  {t['id']}: {t['name']}" for t in bootstrap["teams"])
-
-    # Next GW fixtures
-    fix_lines = []
+    fix_lines  = []
     for fix in fixtures:
         if fix["event"] != next_gw:
             continue
         h = teams_by_id.get(fix["team_h"], "?")
         a = teams_by_id.get(fix["team_a"], "?")
         fix_lines.append(f"  {h}(H) vs {a}(A) — home diff:{fix['team_h_difficulty']} away diff:{fix['team_a_difficulty']}")
-
-    # DGW/BGW summary for next 5 GWs
     gw_lines = []
     for gw in range(next_gw, min(next_gw + 5, 39)):
         status = gw_status.get(gw, {})
-        dgw = ", ".join(status.get("dgw", [])) or "None"
-        bgw = ", ".join(status.get("bgw", [])) or "None"
+        dgw    = ", ".join(status.get("dgw", [])) or "None"
+        bgw    = ", ".join(status.get("bgw", [])) or "None"
         gw_lines.append(f"  GW{gw}: DGW={dgw} | BGW={bgw}")
-
     return f"""
 LIVE FPL DATA (source: official FPL API, treat as ground truth):
 
@@ -486,16 +486,6 @@ Upcoming DGW/BGW schedule:
 
 LIVE_CONTEXT = build_live_context()
 
-
-"filter_players":     filter_players,
-"top_stat_leaders":   top_stat_leaders,
-"compare_players":    compare_players,
-"fixture_difficulty": fixture_difficulty,
-"get_team":           get_team,
-"gameweek_overview":  gameweek_overview,
-"build_squad":        build_squad,
-}
-
 SYSTEM = f"""You are an expert Fantasy Premier League (FPL) assistant with access to live GW{next_gw} data via tools.
 
 {LIVE_CONTEXT}
@@ -510,7 +500,6 @@ CORE RULES:
 - Your job after a build_squad or get_team call is to provide INSIGHTS and REASONING only — not to repeat the squad list
 - Every stat you quote MUST come from a tool call in this conversation
 - Never invent team names, fixtures, opponents, prices, or scores under any circumstances
-- If you are unsure of any fact, call a tool to verify it
 
 FPL KNOWLEDGE & DECISION FRAMEWORKS:
 
@@ -580,7 +569,7 @@ def run_agent(history):
                 tool_results.append({"type":"tool_result","tool_use_id":block.id,"content":result})
         history.append({"role": "user", "content": tool_results})
     reply = "".join(b.text for b in response.content if hasattr(b, "text"))
-    safe = []
+    safe  = []
     for msg in history:
         if isinstance(msg["content"], list):
             safe.append({"role": msg["role"], "content": [
@@ -611,7 +600,7 @@ if st.session_state.show_landing and not st.session_state.show_how_it_works:
         if st.button("Get started →", use_container_width=True, type="primary"):
             st.session_state.show_how_it_works = True
             st.rerun()
-        st.markdown('<div class="free-note"><a href="https://buymeacoffee.com/fplagent" target="_blank"><strong>☕ Buy me a coffee if you find it useful</strong></a></div>', unsafe_allow_html=True)
+        st.markdown(BMC_LINK, unsafe_allow_html=True)
     st.stop()
 
 # ── How it works ──────────────────────────────────────────
@@ -667,12 +656,12 @@ The engine tests every legal FPL formation, picks the best starting XI, orders t
         if st.button("← Back", use_container_width=True):
             st.session_state.show_how_it_works = False
             st.rerun()
-        st.markdown('<div class="free-note"><a href="https://buymeacoffee.com/fplagent" target="_blank"><strong>☕ Buy me a coffee if you find it useful</strong></a></div>', unsafe_allow_html=True)
+        st.markdown(BMC_LINK, unsafe_allow_html=True)
     st.stop()
 
 # ── Main chat UI ──────────────────────────────────────────
 st.markdown(f"### ⚽ FPL Agent — GW{next_gw}")
-st.markdown('<div style="text-align:right;font-size:12px;"><a href="https://buymeacoffee.com/fplagent" target="_blank"><strong>☕ Buy me a coffee if you find it useful</strong></a></div>', unsafe_allow_html=True)
+st.markdown(f'<div style="text-align:right;font-size:12px;"><a href="{BMC_URL}" target="_blank"><strong>☕ Buy me a coffee if you find it useful</strong></a></div>', unsafe_allow_html=True)
 st.divider()
 
 with st.expander("💡 Did you know? Get personalised advice using your FPL Team ID"):
@@ -704,14 +693,12 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Soft nudge every 3 questions
 if st.session_state.question_count > 0 and st.session_state.question_count % 3 == 0:
     st.markdown(f"""
     <div class="nudge-banner">
-        <p>☕ Finding FPL Agent useful? <a href="https://buymeacoffee.com/fplagent" target="_blank">Buy me a coffee</a> to help keep it running — completely optional, always appreciated.</p>
+        <p>☕ Finding FPL Agent useful? <a href="{BMC_URL}" target="_blank">Buy me a coffee</a> to help keep it running — completely optional, always appreciated.</p>
     </div>
     """, unsafe_allow_html=True)
-
 
 user_input = st.chat_input("Ask anything about FPL...") or st.session_state.pop("pending_prompt", None)
 
@@ -725,7 +712,7 @@ if user_input:
             reply, safe_history = run_agent(st.session_state.history)
             st.markdown(reply)
     st.session_state.messages.append({"role": "assistant", "content": reply})
-    st.session_state.history     = safe_history
+    st.session_state.history      = safe_history
     st.session_state.question_count += 1
     log_question(user_input)
     st.rerun()
