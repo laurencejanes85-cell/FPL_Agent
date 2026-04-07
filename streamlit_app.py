@@ -450,7 +450,31 @@ def render_team(data):
              "Fixture":p["fixture"],"Role":p["role"]} for p in data["squad"]]
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
-# ── Agent ─────────────────────────────────────────────────
+def strip_fixture_hallucinations(text):
+    """Remove any lines from Claude's response that mention fixtures or opponents."""
+    import re
+    # Build set of valid team names from API
+    valid_teams = {t["name"].lower() for t in bootstrap["teams"]}
+    cleaned = []
+    for line in text.split("\n"):
+        lower = line.lower()
+        # Check if line mentions a team name followed by fixture language
+        has_fixture_lang = any(w in lower for w in [
+            " vs ", " v ", "(h)", "(a)", "home", "away", "fixture",
+            "faces ", "plays ", "against ", "hosting ", "travel"
+        ])
+        if has_fixture_lang:
+            # Check if it mentions a team not in the current PL
+            words = re.findall(r"[a-z ]{3,}", lower)
+            mentions_invalid = any(
+                w.strip() in ["leeds", "burnley", "sheffield", "luton",
+                               "leicester", "ipswich", "southampton"]
+                for w in words
+            )
+            if mentions_invalid:
+                continue  # drop this line
+        cleaned.append(line)
+    return "\n".join(cleaned)
 def run_agent(history):
     client        = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
     squad_renders = []
@@ -470,7 +494,9 @@ def run_agent(history):
                     squad_renders.append((block.name, result))
                 tool_results.append({"type":"tool_result","tool_use_id":block.id,"content":json.dumps(result)})
         history.append({"role":"user","content":tool_results})
-    reply = "".join(b.text for b in resp.content if hasattr(b,"text"))
+    reply = strip_fixture_hallucinations(
+        "".join(b.text for b in resp.content if hasattr(b,"text"))
+    )
     safe  = []
     for msg in history:
         if isinstance(msg["content"], list):
