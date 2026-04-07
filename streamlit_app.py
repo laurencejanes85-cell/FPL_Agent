@@ -591,10 +591,24 @@ st.markdown(f"### ⚽ FPL Agent — GW{next_gw}")
 st.markdown('<div style="text-align:right;font-size:12px;"><a href="https://buymeacoffee.com/fplagent" target="_blank"><strong>☕ Buy me a coffee if you find it useful</strong></a></div>', unsafe_allow_html=True)
 st.divider()
 
+with st.expander("💡 Did you know? Get personalised advice using your FPL Team ID"):
+    st.markdown("""
+    FPL Agent can analyse **your actual squad** and give personalised transfer advice, captain picks, and BGW/DGW warnings.
+
+    **How to find your FPL Team ID:**
+    1. Go to [fantasy.premierleague.com](https://fantasy.premierleague.com)
+    2. Click **Points** or **Pick Team**
+    3. Look at the URL — your ID is the number in the address bar:
+    `fantasy.premierleague.com/entry/`**`1234567`**`/event/36`
+
+    Then just tell FPL Agent: *"My FPL ID is 1234567, analyse my team"*
+    """)
+
 if not st.session_state.messages:
     prompts = [
         "Build me a balanced squad for £100m",
         "Best value midfielders under £7m?",
+        "My FPL Team ID is xxxx, analyse it!",
         "Any double gameweeks coming up?",
     ]
     cols = st.columns(2)
