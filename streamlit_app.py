@@ -527,7 +527,7 @@ if st.session_state.show_landing and not st.session_state.show_how_it_works:
         if st.button("Get started →", use_container_width=True, type="primary"):
             st.session_state.show_how_it_works = True
             st.rerun()
-        st.markdown('<div class="free-note">Free to use · Buy me a coffee if you find it useful ☕</div>', unsafe_allow_html=True)
+        st.markdown('<div class="free-note"><a href="https://buymeacoffee.com/fplagent" target="_blank"><strong>☕ Buy me a coffee if you find it useful</strong></a></div>', unsafe_allow_html=True)
     st.stop()
 
 # ── How it works ──────────────────────────────────────────
@@ -583,16 +583,19 @@ The engine tests every legal FPL formation, picks the best starting XI, orders t
         if st.button("← Back", use_container_width=True):
             st.session_state.show_how_it_works = False
             st.rerun()
+        st.markdown('<div class="free-note"><a href="https://buymeacoffee.com/fplagent" target="_blank"><strong>☕ Buy me a coffee if you find it useful</strong></a></div>', unsafe_allow_html=True)
     st.stop()
 
 # ── Main chat UI ──────────────────────────────────────────
 st.markdown(f"### ⚽ FPL Agent — GW{next_gw}")
+st.markdown('<div style="text-align:right;font-size:12px;"><a href="https://buymeacoffee.com/fplagent" target="_blank"><strong>☕ Buy me a coffee if you find it useful</strong></a></div>', unsafe_allow_html=True)
 st.divider()
 
 if not st.session_state.messages:
     prompts = [
         "Build me a balanced squad for £100m",
         "Best value midfielders under £7m?",
+        "Compare Salah and Saka",
         "Any double gameweeks coming up?",
     ]
     cols = st.columns(2)
