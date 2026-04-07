@@ -470,6 +470,9 @@ CORE RULES:
 - Use football terminology naturally (clean sheet, xG, differential, template, captaincy, free hit, wildcard etc.)
 - When you're uncertain between two options, say so and explain the tradeoff rather than forcing a single answer
 - Every stat you quote MUST come from a tool call in this conversation — never invent or assume numbers
+- NEVER invent or guess team names, fixtures, or opponents — only use the exact fixture strings returned by the tools
+- The fixture string in the tool response (e.g. "Chelsea(H)") is the ground truth — copy it exactly, do not replace it with your own knowledge of the Premier League
+- If a fixture string says "Chelsea(H)" that is the opponent — do not substitute a different team name under any circumstances
 
 FPL KNOWLEDGE & DECISION FRAMEWORKS:
 
@@ -534,7 +537,7 @@ def run_agent(history):
     for _ in range(8):
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=1024,
+            max_tokens=2048,
             system=SYSTEM,
             tools=TOOLS,
             messages=history,
@@ -662,6 +665,7 @@ if not st.session_state.messages:
     prompts = [
         "Build me a balanced squad for £100m",
         "Best value midfielders under £7m?",
+        "Compare Salah and Saka",
         "Any double gameweeks coming up?",
     ]
     cols = st.columns(2)
