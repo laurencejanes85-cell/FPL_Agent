@@ -130,7 +130,37 @@ def load_fpl_data():
             "selected_pct": float(p.get("selected_by_percent") or 0),
             "pen_order": p.get("penalties_order"), "status": p["status"],
         })
-    next_gw_diff, next_gw_fix_str = {}, {}
+        next_gw_diff, next_gw_fix_str = {}, {}
+    # Count fixtures per team per GW to detect DGW/BGW
+    team_gw_fixture_count = {}  # {team_id: {gw: count}}
+    for fix in fixtures:
+        gw = fix["event"]
+        if gw is None:
+            continue
+        for tid in [fix["team_h"], fix["team_a"]]:
+            team_gw_fixture_count.setdefault(tid, {})
+            team_gw_fixture_count[tid][gw] = team_gw_fixture_count[tid].get(gw, 0) + 1
+
+    # Build DGW/BGW lookup across all remaining GWs
+    all_team_ids = {t["id"] for t in bootstrap["teams"]}
+    remaining_gws = [e["id"] for e in bootstrap["events"] if not e.get("finished", True)]
+
+    gw_status = {}  # {gw: {"dgw": [team_names], "bgw": [team_names]}}
+    for gw in remaining_gws:
+        dgw = {tid for tid in all_team_ids if team_gw_fixture_count.get(tid, {}).get(gw, 0) >= 2}
+        bgw = {tid for tid in all_team_ids if team_gw_fixture_count.get(tid, {}).get(gw, 0) == 0}
+        if dgw or bgw:
+            gw_status[gw] = {
+                "dgw": [teams_by_id[tid] for tid in dgw],
+                "bgw": [teams_by_id[tid] for tid in bgw],
+            }
+
+    # Next GW specific sets (used by squad builder scoring)
+    dgw_teams = {tid for tid in all_team_ids
+                 if team_gw_fixture_count.get(tid, {}).get(next_gw, 0) >= 2}
+    bgw_teams = {tid for tid in all_team_ids
+                 if team_gw_fixture_count.get(tid, {}).get(next_gw, 0) == 0}
+
     for fix in fixtures:
         if fix["event"] != next_gw:
             continue
@@ -139,9 +169,17 @@ def load_fpl_data():
         next_gw_diff.setdefault(a, []).append(fix["team_a_difficulty"])
         next_gw_fix_str.setdefault(h, []).append(f"{teams_by_id.get(a,'?')}(H)")
         next_gw_fix_str.setdefault(a, []).append(f"{teams_by_id.get(h,'?')}(A)")
-    return bootstrap, fixtures, teams_by_id, players, next_gw, next_gw_diff, next_gw_fix_str
 
-bootstrap, fixtures, teams_by_id, players, next_gw, next_gw_diff, next_gw_fix_str = load_fpl_data()
+    # Tag each player with DGW/BGW status
+    for p in players:
+        t_id = next((t["id"] for t in bootstrap["teams"] if t["name"] == p["team"]), 0)
+        p["dgw"] = t_id in dgw_teams
+        p["bgw"] = t_id in bgw_teams
+        p["fixture_count"] = team_gw_fixture_count.get(t_id, {}).get(next_gw, 1)
+
+    return bootstrap, fixtures, teams_by_id, players, next_gw, next_gw_diff, next_gw_fix_str, dgw_teams, bgw_teams, team_gw_fixture_count, gw_status
+
+bootstrap, fixtures, teams_by_id, players, next_gw, next_gw_diff, next_gw_fix_str, dgw_teams, bgw_teams, team_gw_fixture_count, gw_status = load_fpl_data()
 
 # ── Tool implementations ──────────────────────────────────
 def filter_players(position="ALL", max_price=None, min_price=None,
@@ -213,7 +251,21 @@ def fixture_difficulty(team=None, gameweeks=3):
     results.sort(key=lambda x: x["avg_difficulty"])
     return {"gameweeks": gameweeks, "from_gw": next_gw, "teams": results[:20] if not team else results}
 
-def build_squad(style="balanced", excluded_teams=None, excluded_players=None,
+def gameweek_overview(gameweeks_ahead=5):
+    """Show DGW/BGW status across upcoming gameweeks."""
+    results = []
+    for gw in range(next_gw, min(next_gw + gameweeks_ahead, 39)):
+        status = gw_status.get(gw, {})
+        results.append({
+            "gw": gw,
+            "dgw_teams": status.get("dgw", []),
+            "bgw_teams": status.get("bgw", []),
+            "has_dgw": bool(status.get("dgw")),
+            "has_bgw": bool(status.get("bgw")),
+        })
+    return {"from_gw": next_gw, "gameweeks": results}
+
+style="balanced", excluded_teams=None, excluded_players=None,
                 forced_players=None, budget=100.0, max_per_team=3):
     try:
         import pulp
@@ -239,7 +291,13 @@ def build_squad(style="balanced", excluded_teams=None, excluded_players=None,
         atk_w  = 0.8 if style=="cautious" else 1.5
         fix_mult = ((6-fix_d)/5)**fix_pow
         raw    = attack*atk_w + defence + bonus
-        return raw*(1+form_w*(p["form"]/10))*fix_mult
+        base   = raw*(1+form_w*(p["form"]/10))*fix_mult
+        # DGW boost / BGW penalty
+        if t_id in dgw_teams:
+            base *= 1.8
+        elif t_id in bgw_teams:
+            base *= 0.1  # heavily penalise blanks so optimizer avoids them
+        return base
     pool = [p for p in players
             if p["team"].lower() not in excl_teams
             and not any(e in p["name"].lower() or e in p["web_name"].lower() for e in excl_players)]
@@ -297,10 +355,26 @@ def build_squad(style="balanced", excluded_teams=None, excluded_players=None,
         [fmt(p, "Captain" if p["web_name"]==captain else "Vice-Captain" if p["web_name"]==vice else "XI") for p in best_xi] +
         [fmt(p, "Bench") for p in sorted(bench, key=lambda p: p["_score"], reverse=True)]
     )
+    # BGW warnings — XI players whose team has no fixture
+    bgw_warnings = [
+        p["web_name"] for p in best_xi
+        if next((t["id"] for t in bootstrap["teams"] if t["name"]==p["team"]),0) in bgw_teams
+    ]
+
+    # DGW flags — XI players with a double gameweek
+    dgw_players = [
+        p["web_name"] for p in best_xi
+        if next((t["id"] for t in bootstrap["teams"] if t["name"]==p["team"]),0) in dgw_teams
+    ]
+
     return {"style":style,"formation":best_formation,"gw":next_gw,
             "budget_used":round(sum(p["price"] for p in selected),1),
             "budget_remaining":round(budget-sum(p["price"] for p in selected),1),
-            "captain":captain,"vice_captain":vice,"players":players_out}
+            "captain":captain,"vice_captain":vice,"players":players_out,
+            "dgw_players": dgw_players,
+            "bgw_warnings": bgw_warnings,
+            "dgw_teams": [teams_by_id[tid] for tid in dgw_teams],
+            "bgw_teams": [teams_by_id[tid] for tid in bgw_teams]}
 
 TOOLS = [
     {"name":"filter_players","description":"Filter and rank players by stats.",
@@ -322,7 +396,10 @@ TOOLS = [
     {"name":"fixture_difficulty","description":"Upcoming fixture difficulty for teams.",
      "input_schema":{"type":"object","properties":{
          "team":{"type":"string"},"gameweeks":{"type":"integer"}}}},
-    {"name":"build_squad","description":"Build an optimised 15-player FPL squad.",
+    {"name":"gameweek_overview","description":"Show which upcoming gameweeks have double or blank gameweeks, and which teams are affected.",
+     "input_schema":{"type":"object","properties":{
+         "gameweeks_ahead":{"type":"integer","description":"How many GWs ahead to look, default 5"}}}},
+
      "input_schema":{"type":"object","properties":{
          "style":{"type":"string","enum":["cautious","aggressive","balanced"]},
          "excluded_teams":{"type":"array","items":{"type":"string"}},
@@ -334,10 +411,21 @@ TOOLS = [
 TOOL_FNS = {
     "filter_players": filter_players, "top_stat_leaders": top_stat_leaders,
     "compare_players": compare_players, "fixture_difficulty": fixture_difficulty,
+    "gameweek_overview": gameweek_overview,
     "build_squad": build_squad,
 }
+dgw_team_names = [teams_by_id[tid] for tid in dgw_teams]
+bgw_team_names = [teams_by_id[tid] for tid in bgw_teams]
+
 SYSTEM = f"""You are an expert FPL assistant with live GW{next_gw} data.
-Always call tools before answering. Be concise and give clear recommendations."""
+Always call tools before answering. Be concise and give clear recommendations.
+
+DOUBLE/BLANK GAMEWEEK AWARENESS:
+- Use the gameweek_overview tool whenever a user asks about upcoming DGWs, BGWs, or fixture schedules across multiple weeks.
+- GW{next_gw} DGW teams: {', '.join(teams_by_id[tid] for tid in dgw_teams) if dgw_teams else 'None'}
+- GW{next_gw} BGW teams: {', '.join(teams_by_id[tid] for tid in bgw_teams) if bgw_teams else 'None'}
+- DGW players get a 1.8x score boost in squad builds. BGW players are heavily penalised.
+- Always flag BGW warnings if any selected XI player has a blank. Always highlight DGW players as targets."""
 
 # ── Helper: run agent ─────────────────────────────────────
 def run_agent(history):
@@ -470,7 +558,7 @@ if not st.session_state.messages:
     prompts = [
         "Build me a balanced squad for £100m",
         "Best value midfielders under £7m?",
-        "Let's go all out attack",
+        "Compare Salah and Saka",
         "Easiest fixtures next 3 GWs?",
     ]
     cols = st.columns(2)
