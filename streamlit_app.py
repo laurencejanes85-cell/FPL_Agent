@@ -595,7 +595,6 @@ if not st.session_state.messages:
     prompts = [
         "Build me a balanced squad for £100m",
         "Best value midfielders under £7m?",
-        "Compare Salah and Saka",
         "Any double gameweeks coming up?",
     ]
     cols = st.columns(2)
