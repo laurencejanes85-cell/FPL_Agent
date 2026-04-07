@@ -54,14 +54,13 @@ def get_sheet():
             scopes=["https://www.googleapis.com/auth/spreadsheets"],
         )
         gc    = gspread.authorize(creds)
-        sheet = gc.open_by_key(st.secrets["SHEET_ID"]).sheet1
-        return sheet, None
-    except Exception as e:
-        return None, str(e)
+        return gc.open_by_key(st.secrets["SHEET_ID"]).sheet1
+    except Exception:
+        return None
 
 def log_question(question):
     try:
-        sheet, _ = get_sheet()
+        sheet = get_sheet()
         if sheet:
             sheet.append_row([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), question])
     except Exception:
@@ -520,13 +519,6 @@ The engine tests every legal FPL formation, picks the best starting XI, orders t
 
 # ── Main chat UI ──────────────────────────────────────────
 st.markdown(f"### ⚽ FPL Agent — GW{next_gw}")
-
-# Debug sheet connection — remove once working
-sheet, err = get_sheet()
-if sheet:
-    st.success(f"✅ Sheet connected: {sheet.title}")
-else:
-    st.error(f"❌ Sheet connection failed: {err}")
 st.divider()
 
 # Suggested prompts
